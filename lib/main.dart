@@ -17,8 +17,13 @@ class MeetPeopleChatApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepOrange),
         useMaterial3: true,
       ),
-      home: const ChatListScreen(),
+      initialRoute: '/',
       routes: {
+        '/': (context) => const UserSelectorScreen(),
+        '/chatList': (context) {
+          final currentUserId = ModalRoute.of(context)!.settings.arguments as String;
+          return ChatListScreen(currentUserId: currentUserId);
+        },
         '/chat': (context) {
           final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
           return ChatScreen(
@@ -28,6 +33,40 @@ class MeetPeopleChatApp extends StatelessWidget {
           );
         },
       },
+    );
+  }
+}
+
+class UserSelectorScreen extends StatelessWidget {
+  const UserSelectorScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("Choisir un utilisateur")),
+      body: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pushReplacementNamed(context, '/chatList', arguments: 'user123');
+              },
+              icon: const Icon(Icons.person),
+              label: const Text("Se connecter en tant que user123"),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pushReplacementNamed(context, '/chatList', arguments: 'user456');
+              },
+              icon: const Icon(Icons.person_outline),
+              label: const Text("Se connecter en tant que user456"),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -7,11 +7,16 @@ import '../services/socket_service.dart';
 import '../models/message.dart';
 
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key, required this.currentUserId, required this.otherUserId, required this.username});
-
   final String currentUserId;
   final String otherUserId;
   final String username;
+
+  const ChatScreen({
+    super.key,
+    required this.currentUserId,
+    required this.otherUserId,
+    required this.username,
+  });
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -19,42 +24,78 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   List<Message> messages = [];
+  bool isLoading = true;
+  final ScrollController _scrollController = ScrollController();
+  final SocketService socketService = SocketService();
 
   @override
   void initState() {
     super.initState();
 
-    SocketService().connect(widget.currentUserId);
-    fetchMessages();
+    // Connexion WebSocket
+    socketService.connect(widget.currentUserId);
 
-    SocketService().socket.on('message', (data) {
+    // Callback sur réception message
+    socketService.onMessageReceived = (data) {
       final msg = Message(
         from: data['from'],
         to: data['to'],
         content: data['message'],
-        timestamp: DateTime.now(),
+        timestamp: DateTime.parse(data['timestamp']),
       );
 
-      if (msg.from == widget.otherUserId) {
+      if (msg.from == widget.currentUserId) return;
+      // Si le message vient du bon utilisateur OU de moi-même, on l’ajoute
+      if (msg.from == widget.otherUserId || msg.from == widget.currentUserId) {
         setState(() {
           messages.add(msg);
         });
+
+        if (msg.from == widget.otherUserId) {
+          markMessagesAsRead();
+        }
+
+        scrollToBottom();
       }
+    };
+
+    fetchMessages().then((_) {
+      markMessagesAsRead();
+      scrollToBottom();
     });
   }
 
   Future<void> fetchMessages() async {
-    final url = 'http://192.168.10.26:3000/api/messages/${widget.currentUserId}/${widget.otherUserId}';
-    final response = await http.get(Uri.parse(url));
+    final url =
+        'http://192.168.10.66:3000/api/messages/${widget.currentUserId}/${widget.otherUserId}';
 
-    if (response.statusCode == 200) {
-      final List<dynamic> data = jsonDecode(response.body);
+    try {
+      setState(() => isLoading = true);
 
-      setState(() {
-        messages = data.map((json) => Message.fromJson(json)).toList();
-      });
-    } else {
-      print('Erreur chargement messages: ${response.statusCode}');
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        setState(() {
+          messages = data.map((json) => Message.fromJson(json)).toList();
+          isLoading = false;
+        });
+      } else {
+        print('❌ Erreur chargement messages: ${response.statusCode}');
+        setState(() => isLoading = false);
+      }
+    } catch (e) {
+      print('❌ Exception fetchMessages: $e');
+      setState(() => isLoading = false);
+    }
+  }
+
+  Future<void> markMessagesAsRead() async {
+    final url =
+        'http://192.168.10.66:3000/api/messages/read/${widget.otherUserId}/${widget.currentUserId}';
+    try {
+      await http.put(Uri.parse(url));
+    } catch (e) {
+      print('❌ Erreur mise à jour des messages lus: $e');
     }
   }
 
@@ -70,25 +111,65 @@ class _ChatScreenState extends State<ChatScreen> {
       messages.add(msg);
     });
 
-    SocketService().sendMessage(text, widget.otherUserId);
+    socketService.sendMessage(text, widget.otherUserId);
+    scrollToBottom();
+  }
+
+  void scrollToBottom() {
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    socketService.onMessageReceived = null;
+    _scrollController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.username),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.white,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Text(
+          widget.username,
+          style: const TextStyle(
+            color: Colors.black,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.flag),
-            onPressed: () {},
+            icon: const Icon(Icons.flag_outlined, color: Colors.black),
+            onPressed: () {
+              // TODO: Action de signalement
+            },
           )
         ],
       ),
       body: Column(
         children: [
           Expanded(
-            child: ListView.builder(
+            child: isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : messages.isEmpty
+                ? const Center(child: Text("Aucun message pour l'instant"))
+                : ListView.builder(
+              controller: _scrollController,
               padding: const EdgeInsets.all(16),
               itemCount: messages.length,
               itemBuilder: (context, index) {
@@ -100,6 +181,7 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
           ),
+          const SizedBox(height: 8),
           ChatInputField(onSend: handleSend),
         ],
       ),
